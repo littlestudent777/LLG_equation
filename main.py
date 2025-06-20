@@ -1,19 +1,17 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Callable
 
 
 class LLGSolver:
     """
-    Class for solving the Landau-Lifshitz-Gilbert (LLG) equation.
+    Base class with common Landau-Lifshitz-Gilbert (LLG) equation solver methods.
 
     Uses normalized quantities:
     - tau = gamma * M_s * t  (dimensionless time)
     - m = M / M_s            (dimensionless magnetization, norm(m)= 1)
     """
-
-    def __init__(self, gamma: float = 1.76e7, alpha: float = 0.1,
-                 Ms: float = 1707, K1: float = 4.2e5, K2: float = 1.5e5):
+    def __init__(self, alpha=0.01, gamma=1.76e7, Ms=1707):
         """
         Initialize model parameters.
 
@@ -25,40 +23,15 @@ class LLGSolver:
             Dimensionless damping constant
         Ms : float
             Saturation magnetization [emu/cc]
-        K1, K2 : float
-            Cubic anisotropy constant for Fe [erg/cc]
+        Ms_sq : float
+            Precomputed value for optimization (Ms^2) [emu^2/c^6]
         """
         self.gamma = gamma
         self.alpha = alpha
         self.Ms = Ms
-        self.K1 = K1
-        self.K2 = K2
-        self.Ms_sq = Ms * Ms  # Precomputed value for optimization
 
     def compute_effective_field(self, m: np.ndarray) -> np.ndarray:
-        """
-        Compute the dimensionless effective field from cubic anisotropy.
-        h_eff = H_eff / Ms
-
-        Parameters:
-        ----------
-        m : np.ndarray
-            Magnetization vector (normalized)
-
-        Returns:
-        -----------
-        h_eff : np.ndarray
-            Effective field vector
-        """
-        m1, m2, m3 = m
-        h_eff = np.zeros(3)
-        m1_sq, m2_sq, m3_sq = m1 * m1, m2 * m2, m3 * m3
-
-        h_eff[0] = -2 * m1 * (self.K1 * (m2_sq + m3_sq) + self.K2 * m2_sq * m3_sq) / self.Ms_sq
-        h_eff[1] = -2 * m2 * (self.K1 * (m1_sq + m3_sq) + self.K2 * m1_sq * m3_sq) / self.Ms_sq
-        h_eff[2] = -2 * m3 * (self.K1 * (m1_sq + m2_sq) + self.K2 * m1_sq * m2_sq) / self.Ms_sq
-
-        return h_eff
+        raise NotImplementedError("Subclasses must implement this method.")
 
     def f(self, m: np.ndarray, h_eff: np.ndarray) -> np.ndarray:
         """
@@ -166,18 +139,27 @@ class LLGSolver:
         return np.array(tau_points), m_points
 
     @staticmethod
-    def plot_results(tau_points: np.ndarray, m_points: List[np.ndarray]):
+    def plot_results(name: str, tau_points: np.ndarray, m_points: List[np.ndarray], save_dir="results", dpi=300):
         """
-        Visualize the solution: Magnetization-Time graph.
+        Plot and save the results.
 
         Parameters:
-        ----------
-        tau_points : np.ndarray
-            Array of dimensionless time points
-        m_trajectory : List[np.ndarray]
-            List of magnetization vectors
+        -----------
+        save_dir : str
+            Directory to save the plots
+        show_plot : bool
+            Whether to display the plot
+        dpi : int
+            Image resolution
         """
+        # Create directory if needed
+        os.makedirs(save_dir, exist_ok=True)
 
+        # Create safe filename from experiment name
+        filename = f"{name.replace(' ', '_')}.png"
+        filepath = os.path.join(save_dir, filename)
+
+        # Create plot
         plt.figure(figsize=(12, 6))
         for i, axis in enumerate(['x', 'y', 'z']):
             plt.plot(tau_points, np.array([m[i] for m in m_points]), label=f'$m_{axis}$', linewidth=2)
@@ -188,23 +170,108 @@ class LLGSolver:
         plt.legend(fontsize=12)
         plt.grid(True, linestyle='--', alpha=0.6)
         plt.tight_layout()
-        plt.show()
+
+        # Save
+        plt.savefig(filepath, dpi=dpi, bbox_inches='tight')
+        print(f"Saved: {filepath}")
+
+
+class AnisotropyLLGSolver(LLGSolver):
+    """Solver with cubic anisotropy."""
+    def __init__(self, K1=4.2e5, K2=1.5e5, **kwargs):
+        super().__init__(**kwargs)
+        self.K1 = K1
+        self.K2 = K2
+        self.Ms_sq = self.Ms * self.Ms
+
+    def compute_effective_field(self, m: np.ndarray) -> np.ndarray:
+        """
+        Compute the dimensionless effective field from cubic anisotropy.
+        h_eff = H_eff / Ms
+
+        Parameters:
+        ----------
+        m : np.ndarray
+            Magnetization vector (normalized)
+
+        Returns:
+        -----------
+        h_eff : np.ndarray
+            Effective field vector
+        """
+        m1, m2, m3 = m
+        h_eff = np.zeros(3)
+        m1_sq, m2_sq, m3_sq = m1 * m1, m2 * m2, m3 * m3
+
+        h_eff[0] = -2 * m1 * (self.K1 * (m2_sq + m3_sq) + self.K2 * m2_sq * m3_sq) / self.Ms_sq
+        h_eff[1] = -2 * m2 * (self.K1 * (m1_sq + m3_sq) + self.K2 * m1_sq * m3_sq) / self.Ms_sq
+        h_eff[2] = -2 * m3 * (self.K1 * (m1_sq + m2_sq) + self.K2 * m1_sq * m2_sq) / self.Ms_sq
+
+        return h_eff
+
+
+class ExternalFieldLLGSolver(LLGSolver):
+    """Solver with external field."""
+    def __init__(self, H_ext=np.zeros(3), **kwargs):
+        super().__init__(**kwargs)
+        self.H_ext = H_ext
+        # Print to compare results
+        print("H_ext direction: ", H_ext / np.linalg.norm(H_ext))
+
+    def compute_effective_field(self, m: np.ndarray) -> np.ndarray:
+        return self.H_ext / self.Ms
+
+
+class DemagFieldLLGSolver(LLGSolver):
+    def __init__(self, N : np.ndarray, **kwargs):
+        super().__init__(**kwargs)
+        self.N = N
+
+    def compute_effective_field(self, m: np.ndarray) -> np.ndarray:
+        h_eff = np.zeros(3)
+        for i in range(3):
+            h_eff[i] = - 4 * np.pi * self.N[i] * m[i]
+
+        return h_eff
+
+
+import os
+
+class Experiment:
+    def __init__(self, name, solver_class, solver_params, m0, t_max, dt):
+        self.name = name
+        self.solver = solver_class(**solver_params)
+        self.m0 = m0
+        self.t_max = t_max
+        self.dt = dt
+
+    def run(self):
+        self.tau_points, self.m_points = self.solver.solve(self.m0, self.t_max, self.dt)
+        return self
+
+    def plot(self):
+        LLGSolver.plot_results(self.name, self.tau_points, self.m_points)
 
 
 if __name__ == "__main__":
-    # Initialize solver with default parameters
-    solver = LLGSolver()
 
-    # Initial position of the magnetization vector
+    # Initial position of the magnetization vector (randomly chosen)
     theta = np.deg2rad(30)
     m0 = np.array([np.cos(theta), np.sin(theta), 0])  # normalized
 
     # Time parameters
-    t_max = 1e-8  # Maximum time in seconds
-    dt = 1e-12  # Time step in seconds
+    t_max = 1e-7  # Maximum time in seconds
+    dt = 1e-11  # Time step in seconds
 
-    # Solve the equation
-    tau_points, m_trajectory = solver.solve(m0, t_max, dt)
+    # Initialize solvers with different parameters
+    experiments = [
+        Experiment("External Field", ExternalFieldLLGSolver,
+                   {"H_ext": np.array([800, 250, 1000])}, m0, t_max, dt),
+        # Experiment("Demagnetization field (Cylinder)", DemagFieldLLGSolver,
+        #            {"N": np.array([0.5, 0.5, 0])}, m0, t_max, dt),
+        # Experiment("Anisotropy", AnisotropyLLGSolver,
+        #            {}, m0, t_max, dt)
+    ]
 
-    # Visualize results
-    LLGSolver.plot_results(tau_points, m_trajectory)
+    for exp in experiments:
+        exp.run().plot()
