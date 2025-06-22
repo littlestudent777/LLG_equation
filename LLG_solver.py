@@ -1,37 +1,40 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import List, Tuple, Dict, Callable
-import os
+from abc import ABC, abstractmethod
+from typing import List, Tuple
 
-class LLGSolver:
+
+class LLGSolver(ABC):
     """
-    Base class with common Landau-Lifshitz-Gilbert (LLG) equation solver methods.
+    Abstract class with Landau-Lifshitz-Gilbert (LLG) equation solver.
 
     Uses normalized quantities:
     - tau = gamma * M_s * t  (dimensionless time)
-    - m = M / M_s            (dimensionless magnetization, norm(m)= 1)
+    - m = M / M_s            (dimensionless magnetization, euclidian_norm(m) = 1)
     """
-    def __init__(self, alpha=0.01, gamma=1.76e7, Ms=1707):
+    def __init__(self, alpha: float, gamma: float = 1.76e7, Ms: float = 1707):
         """
         Initialize model parameters.
 
         Parameters:
         ----------
-        gamma : float
-            Gyromagnetic ratio [rad/(s·G)]
         alpha : float
             Dimensionless damping constant
-        Ms : float
-            Saturation magnetization [emu/cc]
-        Ms_sq : float
-            Precomputed value for optimization (Ms^2) [emu^2/c^6]
+        gamma : float, default=1.76e7
+            Gyromagnetic ratio [rad/(s·G)] (default corresponds to electron)
+        Ms : float, default=1707
+            Saturation magnetization [emu/cc] (default corresponds to Fe in room temp.)
         """
         self.gamma = gamma
         self.alpha = alpha
         self.Ms = Ms
 
+    @abstractmethod
     def compute_effective_field(self, m: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("Subclasses must implement this method.")
+        """
+        Compute the effective field (must be implemented by subclasses)
+        """
+        pass
 
     def f(self, m: np.ndarray, h_eff: np.ndarray) -> np.ndarray:
         """
@@ -39,10 +42,8 @@ class LLGSolver:
 
         Parameters:
         ----------
-        m : np.ndarray
-            Magnetization vector
-        h_eff : np.ndarray
-            Effective field vector
+        m : Magnetization vector
+        h_eff : Effective field vector
 
         Returns:
         -----------
@@ -52,10 +53,13 @@ class LLGSolver:
         m_cross_h = np.cross(m, h_eff)
         return -(m_cross_h + self.alpha * np.cross(m, m_cross_h))
 
-    def merson_step(self, m: np.ndarray, step: float, eps: float) -> Tuple[np.ndarray, float, bool]:
+    def merson_step(self, m: np.ndarray, step: float, tol: float) -> Tuple[np.ndarray, float, bool]:
         """
         Single step of Merson's RK method with adaptive step size control
-        Returns: (new_m, new_h, step_accepted)
+
+        Returns:
+        -----------
+        (new_m, new_step, step_accepted(bool flag))
         """
         h_eff = self.compute_effective_field(m)
         k1 = step * self.f(m, h_eff)
@@ -81,29 +85,41 @@ class LLGSolver:
         error_norm = np.linalg.norm(error)
         m_norm = np.linalg.norm(m)
 
-        if error_norm >= eps * m_norm:
+        if error_norm >= tol * m_norm:
             return m, step / 2, False  # Reject step, reduce h
 
         # Accept step
         m_new = m + (k1 + 4 * k4 + k5) / 6
         m_new /= np.linalg.norm(m_new)  # Project to unit sphere
 
-        if error_norm <= eps * m_norm / 32:
+        if error_norm <= tol * m_norm / 32:
             step *= 2  # Can increase step
 
         return m_new, step, True
 
-    def solve(self, m0: np.ndarray, t_max: float, dt: float,
+    def solve(self, m0: np.ndarray, t_max: float = 1e-8, dt: float = 1e-12,
               tol: float = 1e-5) -> Tuple[np.ndarray, List[np.ndarray]]:
         """
-        Solve with adaptive Merson's RK method
-        eps - desired relative accuracy
-        h_init - initial step size (dimensionless)
+        Solve Cauchy problem with adaptive Merson's RK method
+
+        Parameters:
+        ----------
+        m0 : Initial solution m(t=0)
+        t_max : Upper limit for the time (find solution for t in [0, t_max])
+        dt : Initial step size
+        tol : Desired relative accuracy
+
+        Returns:
+        ----------
+        Tuple:
+        (tau_points: array of dimensionless time values, m_points: list of magnetization vectors at each time step)
         """
+        # Transform to dimensionless time
         tau_max = self.gamma * self.Ms * t_max
+        dtau = self.gamma * self.Ms * dt
+
         m = m0.copy()
         tau = 0.0
-        dtau = self.gamma * self.Ms * dt
 
         tau_points = [tau]
         m_points = [m.copy()]
@@ -122,31 +138,20 @@ class LLGSolver:
         return np.array(tau_points), m_points
 
     @staticmethod
-    def plot_results(name: str, tau_points: np.ndarray, m_points: List[np.ndarray], save_dir="results", dpi=300):
+    def plot_results(tau_points: np.ndarray, m_points: List[np.ndarray]):
         """
-        Plot and save the results.
+        Plot magnetization dynamics over time.
 
         Parameters:
-        -----------
-        save_dir : str
-            Directory to save the plots
-        show_plot : bool
-            Whether to display the plot
-        dpi : int
-            Image resolution
+        ----------
+            tau_points: Array of dimensionless time values.
+            m_points: List of magnetization vectors at each time step.
         """
 
         # Not showing an empty graph if there are almost no points
         if len(m_points) <= 2:
             print("\nInitial point was an optimal point.")
         else:
-            # # Create directory if needed
-            # os.makedirs(save_dir, exist_ok=True)
-
-            # Create filename from experiment name
-            # filename = f"{name.replace(' ', '_')}.png"
-            # filepath = os.path.join(save_dir, filename)
-
             # Create plot
             plt.figure(figsize=(12, 6))
             for i, axis in enumerate(['x', 'y', 'z']):
@@ -160,33 +165,36 @@ class LLGSolver:
             plt.tight_layout()
 
             plt.show()
-            # # Save
-            # plt.savefig(filepath, dpi=dpi, bbox_inches='tight')
-            # print(f"Saved: {filepath}")
 
 
 class AnisotropyLLGSolver(LLGSolver):
-    """Solver with cubic anisotropy."""
-    def __init__(self, K1=4.2e5, K2=1.5e5, **kwargs):
+    """
+    An inherited class that only takes into account the effects of anisotropy.
+    """
+    def __init__(self, K1: float = 4.2e5, K2: float = 1.5e5, **kwargs):
+        """
+        Parameters:
+        ----------
+        K1, K2 : float
+            Cubic anisotropy constant for Fe [erg/cc]
+        """
         super().__init__(**kwargs)
         self.K1 = K1
         self.K2 = K2
-        self.Ms_sq = self.Ms * self.Ms
+        self.Ms_sq = self.Ms * self.Ms  # Precomputed value for optimization
 
     def compute_effective_field(self, m: np.ndarray) -> np.ndarray:
         """
         Compute the dimensionless effective field from cubic anisotropy.
-        h_eff = H_eff / Ms
+        h_eff[i] = H_eff[i]/M_s = - 1/M_s^2 dF/dm[i]
 
         Parameters:
         ----------
-        m : np.ndarray
-            Magnetization vector (normalized)
+        m : Magnetization vector (normalized)
 
         Returns:
         -----------
-        h_eff : np.ndarray
-            Effective field vector
+        h_eff : Effective field vector
         """
         m1, m2, m3 = m
         h_eff = np.zeros(3)
@@ -200,25 +208,46 @@ class AnisotropyLLGSolver(LLGSolver):
 
 
 class ExternalFieldLLGSolver(LLGSolver):
-    """Solver with external field."""
-    def __init__(self, H_ext=np.zeros(3), **kwargs):
+    """
+    An inherited class that only takes into account the influence of external field.
+    """
+    def __init__(self, H_ext: np.ndarray, **kwargs):
+        """
+        Parameters:
+        ----------
+        H_ext : np.ndarray
+            External field value [G]
+        """
         super().__init__(**kwargs)
         self.H_ext = H_ext
-        # Print to compare results
+        # Directions to compare results to
         print("H_ext direction: ", H_ext / np.linalg.norm(H_ext))
 
     def compute_effective_field(self, m: np.ndarray) -> np.ndarray:
+        """
+        Compute the dimensionless effective field.
+        h_eff[i] = H_eff[i]/M_s = - 1/M_s^2 dF/dm[i] = H_ext / M_s
+        """
         return self.H_ext / self.Ms
 
 
 class DemagFieldLLGSolver(LLGSolver):
+    """
+    An inherited class that only takes into account the influence demagnetization field.
+    """
     def __init__(self, N : np.ndarray, **kwargs):
+        """
+        Parameters:
+        ----------
+        N : np.ndarray
+            Demagnetizing factors [dimensionless], sum(N[i]) = 1
+        """
         super().__init__(**kwargs)
         self.N = N
 
     def compute_effective_field(self, m: np.ndarray) -> np.ndarray:
-        h_eff = np.zeros(3)
-        for i in range(3):
-            h_eff[i] = - 4 * np.pi * self.N[i] * m[i]
-
-        return h_eff
+        """
+        Compute the dimensionless effective field from demagnetization.
+        h_eff[i] = H_eff[i]/M_s = - 1/M_s^2 dF/dm[i] = - 4 * pi * N[i] * m[i]
+        """
+        return -4 * np.pi * self.N * m

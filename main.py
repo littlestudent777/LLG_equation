@@ -1,7 +1,11 @@
 import numpy as np
 from LLG_solver import LLGSolver, ExternalFieldLLGSolver, DemagFieldLLGSolver, AnisotropyLLGSolver
 
+
 class Experiment:
+    """
+    Handles execution and visualization of experiment.
+    """
     def __init__(self, name, solver_class, solver_params, m0, t_max=1e-8, dt=1e-12):
         self.name = name
         self.solver = solver_class(**solver_params)
@@ -16,7 +20,7 @@ class Experiment:
         print(f"Final magnetization: {self.m_points[-1]}")
 
     def plot(self):
-        LLGSolver.plot_results(self.name, self.tau_points, self.m_points)
+        LLGSolver.plot_results(self.tau_points, self.m_points)
 
 
 if __name__ == "__main__":
@@ -42,11 +46,11 @@ if __name__ == "__main__":
     # Study of dependence on alpha
     dif_alpha_exp = [
         Experiment("Demagnetization field (Plane XY)", DemagFieldLLGSolver,
-                   {"N": np.array([0.0, 0.0, 1.0]), "alpha": 0.1}, m0, t_max=3e-10, dt=1e-12),
+                   {"N": np.array([0.0, 0.0, 1.0]), "alpha": 0.1}, m0, t_max=3e-10),
         Experiment("Demagnetization field (Plane XY)", DemagFieldLLGSolver,
-                   {"N": np.array([0.0, 0.0, 1.0]), "alpha": 0.01}, m0, t_max=3e-9, dt=1e-12),
+                   {"N": np.array([0.0, 0.0, 1.0]), "alpha": 0.01}, m0, t_max=3e-9),
         Experiment("Demagnetization field (Plane XY)", DemagFieldLLGSolver,
-                   {"N": np.array([0.0, 0.0, 1.0]), "alpha": 0.001}, m0, t_max=3e-8, dt=1e-12),
+                   {"N": np.array([0.0, 0.0, 1.0]), "alpha": 0.001}, m0, t_max=3e-8),
         Experiment("Demagnetization field (Plane XY)", DemagFieldLLGSolver,
                    {"N": np.array([0.0, 0.0, 1.0]), "alpha": 0.0001}, m0, t_max=3e-7),
     ]
