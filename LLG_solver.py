@@ -105,14 +105,14 @@ class LLGSolver(ABC):
         Parameters:
         ----------
         m0 : Initial solution m(t=0)
-        t_max : Upper limit for the time (find solution for t in [0, t_max])
-        dt : Initial step size
+        t_max : Upper limit for the time [s] (find solution for t in [0, t_max])
+        dt : Initial step size [s]
         tol : Desired relative accuracy
 
         Returns:
         ----------
         Tuple:
-        (tau_points: array of dimensionless time values, m_points: list of magnetization vectors at each time step)
+            (tau_points: array of dimensionless time values, m_points: list of magnetization vectors at each time step)
         """
         # Transform to dimensionless time
         tau_max = self.gamma * self.Ms * t_max
@@ -176,7 +176,7 @@ class AnisotropyLLGSolver(LLGSolver):
         Parameters:
         ----------
         K1, K2 : float
-            Cubic anisotropy constant for Fe [erg/cc]
+            Cubic anisotropy constant [erg/cc] (default corresponds to Fe)
         """
         super().__init__(**kwargs)
         self.K1 = K1
