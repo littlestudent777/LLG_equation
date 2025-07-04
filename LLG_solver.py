@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from abc import ABC, abstractmethod
 from typing import List, Tuple
+from scipy.fft import fft, fftfreq
+from scipy.interpolate import interp1d
 
 
 class Effect(ABC):
@@ -256,3 +258,35 @@ class LLGSolver(ABC):
             plt.tight_layout()
 
             plt.show()
+
+    @staticmethod
+    def compute_frequency(tau_points: np.ndarray, m_component: np.ndarray) -> float:
+        """
+        Calculates the frequency of oscillations.
+
+        Parameters:
+        tau_points: Array of dimensionless time values.
+        m_points: List of magnetization vectors at each time step.
+
+        Returns:
+        frequency as 1/tau (dimensionless).
+        """
+        mean_level = np.mean(m_component)
+        crossings = []
+
+        for i in range(1, len(m_component)):
+            # Condition: crossing the mean level
+            if (m_component[i - 1] < mean_level <= m_component[i]):
+                # Linear interpolation
+                t_cross = tau_points[i - 1] + (tau_points[i] - tau_points[i - 1]) * \
+                          (mean_level - m_component[i - 1]) / (m_component[i] - m_component[i - 1])
+                crossings.append(t_cross)
+
+        if len(crossings) < 2:
+            return 0.0
+
+        periods = np.diff(crossings)
+        avg_period = np.mean(periods)
+        frequency = 1.0 / avg_period
+
+        return frequency
