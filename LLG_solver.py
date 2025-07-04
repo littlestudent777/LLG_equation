@@ -2,8 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from abc import ABC, abstractmethod
 from typing import List, Tuple
-from scipy.fft import fft, fftfreq
-from scipy.interpolate import interp1d
 
 
 class Effect(ABC):
